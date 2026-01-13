@@ -51,9 +51,11 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 uint32_t raw_voltage = 0;
-uint32_t voltageinmv = 0;
-uint32_t threshold = 500; //will need to test this in sunlight -- ask tuesday david about the issue we might encounter that i thought about at this amazing hour, but an absolute threshold may not work
+uint32_t threshold = 800; //will need to test this in sunlight -- ask tuesday david about the issue we might encounter that i thought about at this amazing hour, but an absolute threshold may not work
 char msg[50];
+int movingAverage[8] = {0,0,0,0,0,0,0,0};
+int counter = 0;
+int sum = 0;
 uint8_t lap_detected = 0;
 volatile uint32_t lapTrigger = 0; //yurrrr
 
@@ -69,9 +71,9 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 void interrupt_lap(void)
 {
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-	HAL_Delay(1);
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+	HAL_Delay(1);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
 }
 /* USER CODE END PFP */
 
@@ -127,15 +129,21 @@ int main(void)
 	HAL_ADC_Start(&hadc1);
 	HAL_ADC_PollForConversion(&hadc1, 100);
 	raw_voltage = HAL_ADC_GetValue(&hadc1);
+	sum -= movingAverage[counter];
+	movingAverage[counter++] = raw_voltage;
+	counter %= 8;
+	sum += raw_voltage;
 	HAL_ADC_Stop(&hadc1);
 //	voltageinmv = (raw_voltage/4096.0)*3300;
-
-	sprintf(msg, "BitVal=%lu | numLaps=%lu\r\n", raw_voltage, lapTrigger);
+	int bitShift = sum >> 3;
+//	sprintf(msg, "Raw=%lu | numLaps=%lu\r\n", raw_voltage, lapTrigger);
+//	HAL_UART_Transmit(&hlpuart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+	sprintf(msg, "Moving Avg=%lu | numLaps=%lu\r\n", bitShift, lapTrigger);
 	HAL_UART_Transmit(&hlpuart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 
-	if (raw_voltage <= threshold && lap_detected == 0)
+	if (bitShift <= threshold && lap_detected == 0)
 	{
 		lapTrigger++;
 	    lap_detected = 1;
@@ -144,12 +152,14 @@ int main(void)
 		interrupt_lap();
 
 		//also for debugging
+		sprintf(msg, "Moving Avg=%lu | numLaps=%lu\r\n", bitShift, lapTrigger);
+		HAL_UART_Transmit(&hlpuart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 		sprintf(msg, "Lap %lu!\r\n", lapTrigger);
 		HAL_UART_Transmit(&hlpuart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
 
 	}
-	  if(raw_voltage > threshold) //state machine YES HAHAAHA! ig its not rlly a state machine
+	  if(bitShift > threshold) //state machine YES HAHAAHA! ig its not rlly a state machine
 	  {
 		  lap_detected = 0;
     }
